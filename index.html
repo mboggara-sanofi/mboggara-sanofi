@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cars</title>
+<style>
+:root{--purple:#7A00E6;--deep:#23004C;--ink:#23004C;--muted:#6b6280;--grid:#ece8f2;--bg:#fff;--panel:#faf8fd}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--deep);color:#fff;padding:18px 32px;display:flex;align-items:center;gap:14px}
+header .dot{width:14px;height:14px;border-radius:50%;background:var(--purple);box-shadow:0 0 0 3px #fff3}
+header h1{font-size:18px;font-weight:600;margin:0;letter-spacing:.2px}
+main{max-width:880px;margin:32px auto;padding:0 24px}
+.controls{display:flex;flex-wrap:wrap;gap:16px;align-items:end;margin-bottom:16px}
+label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+select,.file{font:inherit;font-size:14px;color:var(--ink);background:var(--panel);border:1px solid var(--grid);border-radius:6px;padding:6px 10px}
+.file{cursor:pointer}.file input{display:none}
+.file:hover,select:hover{border-color:var(--purple)}
+#chart{width:100%;background:var(--panel);border-radius:10px;padding:8px;position:relative}
+svg{width:100%;height:auto;display:block}
+.grid line{stroke:var(--grid)}
+.axis text{fill:var(--muted);font-size:12px}
+.axis-title{fill:var(--ink);font-size:13px}
+circle.pt{fill:var(--purple);fill-opacity:.85;stroke:var(--panel);stroke-width:2;transition:r .1s}
+circle.pt:hover{fill:var(--deep)}
+#tip{position:absolute;pointer-events:none;background:var(--deep);color:#fff;font-size:12px;padding:6px 10px;border-radius:6px;opacity:0;transform:translate(-50%,-120%);white-space:nowrap}
+#tip b{display:block;font-weight:600}
+footer{font-size:12px;color:var(--muted);margin-top:12px}
+</style>
+</head>
+<body>
+<header><span class="dot"></span><h1>Cars</h1></header>
+<main>
+  <div class="controls">
+    <label>X axis<select id="x"></select></label>
+    <label>Y axis<select id="y"></select></label>
+    <label class="file">Load CSV…<input type="file" id="file" accept=".csv"></label>
+  </div>
+  <div id="chart"><svg id="svg" viewBox="0 0 800 480" role="img" aria-label="Scatter plot of cars"></svg><div id="tip"></div></div>
+  <footer id="note"></footer>
+</main>
+<script>
+const FALLBACK = `name,mpg,cyl,disp,hp,drat,wt,qsec
+Mazda RX4,21.0,6,160,110,3.90,2.620,16.46
+Mazda RX4 Wag,21.0,6,160,110,3.90,2.875,17.02
+Datsun 710,22.8,4,108,93,3.85,2.320,18.61
+Hornet 4 Drive,21.4,6,258,110,3.08,3.215,19.44
+Hornet Sportabout,18.7,8,360,175,3.15,3.440,17.02
+Valiant,18.1,6,225,105,2.76,3.460,20.22
+Duster 360,14.3,8,360,245,3.21,3.570,15.84
+Merc 240D,24.4,4,146.7,62,3.69,3.190,20.00
+Merc 230,22.8,4,140.8,95,3.92,3.150,22.90
+Merc 280,19.2,6,167.6,123,3.92,3.440,18.30
+Merc 280C,17.8,6,167.6,123,3.92,3.440,18.90
+Merc 450SE,16.4,8,275.8,180,3.07,4.070,17.40
+Merc 450SL,17.3,8,275.8,180,3.07,3.730,17.60
+Merc 450SLC,15.2,8,275.8,180,3.07,3.780,18.00
+Cadillac Fleetwood,10.4,8,472,205,2.93,5.250,17.98
+Lincoln Continental,10.4,8,460,215,3.00,5.424,17.82
+Chrysler Imperial,14.7,8,440,230,3.23,5.345,17.42
+Fiat 128,32.4,4,78.7,66,4.08,2.200,19.47
+Honda Civic,30.4,4,75.7,52,4.93,1.615,18.52
+Toyota Corolla,33.9,4,71.1,65,4.22,1.835,19.90
+Toyota Corona,21.5,4,120.1,97,3.70,2.465,20.01
+Dodge Challenger,15.5,8,318,150,2.76,3.520,16.87
+AMC Javelin,15.2,8,304,150,3.15,3.435,17.30
+Camaro Z28,13.3,8,350,245,3.73,3.840,15.41
+Pontiac Firebird,19.2,8,400,175,3.08,3.845,17.05
+Fiat X1-9,27.3,4,79,66,4.08,1.935,18.90
+Porsche 914-2,26.0,4,120.3,91,4.43,2.140,16.70
+Lotus Europa,30.4,4,95.1,113,3.77,1.513,16.90
+Ford Pantera L,15.8,8,351,264,4.22,3.170,14.50
+Ferrari Dino,19.7,6,145,175,3.62,2.770,15.50
+Maserati Bora,15.0,8,301,335,3.54,3.570,14.60
+Volvo 142E,21.4,4,121,109,4.11,2.780,18.60`;
+const W=800,H=480,M={t:20,r:24,b:56,l:64};
+let rows=[],cols=[];
+const $=id=>document.getElementById(id);
+const NS='http://www.w3.org/2000/svg';
+function el(n,a={},p){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e}
+
+function parse(t){
+  const [h,...l]=t.trim().split(/\r?\n/);
+  const hs=h.split(',').map(s=>s.trim());
+  const data=l.map(r=>{const c=r.split(',');const o={};hs.forEach((k,i)=>{const v=c[i]?.trim();o[k]=v!==''&&!isNaN(v)?+v:v});return o});
+  return {hs,data};
+}
+function load(text){
+  const {hs,data}=parse(text);
+  rows=data;
+  cols=hs.filter(k=>data.every(r=>typeof r[k]==='number'));
+  const lab=hs.find(k=>!cols.includes(k));
+  rows.forEach((r,i)=>r._label=lab?r[lab]:'#'+(i+1));
+  for(const id of ['x','y']){$(id).innerHTML=cols.map(c=>`<option>${c}</option>`).join('')}
+  $('x').value=cols.includes('wt')?'wt':cols[0];
+  $('y').value=cols.includes('mpg')?'mpg':cols[1]||cols[0];
+  draw();
+}
+function nice(min,max,n=6){
+  const span=max-min||1,step0=span/n,mag=10**Math.floor(Math.log10(step0));
+  const s=[1,2,5,10].map(m=>m*mag).find(s=>s>=step0);
+  const lo=Math.floor(min/s)*s,hi=Math.ceil(max/s)*s,t=[];
+  for(let v=lo;v<=hi+s/2;v+=s)t.push(+v.toFixed(10));
+  return {lo,hi,t};
+}
+function draw(){
+  const xk=$('x').value,yk=$('y').value,svg=$('svg');
+  svg.innerHTML='';
+  const X=nice(Math.min(...rows.map(r=>r[xk])),Math.max(...rows.map(r=>r[xk])));
+  const Y=nice(Math.min(...rows.map(r=>r[yk])),Math.max(...rows.map(r=>r[yk])));
+  const sx=v=>M.l+(v-X.lo)/(X.hi-X.lo)*(W-M.l-M.r);
+  const sy=v=>H-M.b-(v-Y.lo)/(Y.hi-Y.lo)*(H-M.t-M.b);
+  const g=el('g',{class:'grid'},svg),ax=el('g',{class:'axis'},svg);
+  Y.t.forEach(v=>{el('line',{x1:M.l,x2:W-M.r,y1:sy(v),y2:sy(v)},g);
+    el('text',{x:M.l-10,y:sy(v)+4,'text-anchor':'end'},ax).textContent=v});
+  X.t.forEach(v=>{el('line',{x1:sx(v),x2:sx(v),y1:M.t,y2:H-M.b},g);
+    el('text',{x:sx(v),y:H-M.b+20,'text-anchor':'middle'},ax).textContent=v});
+  el('text',{class:'axis-title',x:(M.l+W-M.r)/2,y:H-10,'text-anchor':'middle'},svg).textContent=xk;
+  el('text',{class:'axis-title',transform:`translate(16 ${(M.t+H-M.b)/2}) rotate(-90)`,'text-anchor':'middle'},svg).textContent=yk;
+  const tip=$('tip'),box=$('chart');
+  rows.forEach(r=>{
+    const c=el('circle',{class:'pt',cx:sx(r[xk]),cy:sy(r[yk]),r:6},svg);
+    c.addEventListener('mouseenter',()=>{
+      const b=svg.getBoundingClientRect(),k=b.width/W;
+      tip.innerHTML=`<b>${r._label}</b>${xk}: ${r[xk]} · ${yk}: ${r[yk]}`;
+      tip.style.left=(b.left-box.getBoundingClientRect().left+sx(r[xk])*k)+'px';
+      tip.style.top=(b.top-box.getBoundingClientRect().top+sy(r[yk])*k)+'px';
+      tip.style.opacity=1});
+    c.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+  $('note').textContent=`${rows.length} cars`;
+}
+$('x').onchange=$('y').onchange=draw;
+$('file').onchange=e=>e.target.files[0]?.text().then(load);
+fetch('cars.csv').then(r=>r.ok?r.text():Promise.reject()).then(load).catch(()=>load(FALLBACK));
+</script>
+</body>
+</html>
